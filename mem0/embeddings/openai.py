@@ -53,8 +53,26 @@ class OpenAIEmbedding(EmbeddingBase):
             list: The embedding vector.
         """
         text = text.replace("\n", " ")
-        return (
-            self.client.embeddings.create(input=[text], model=self.config.model, dimensions=self.config.embedding_dims)
+        # Force your model name — Mem0 sometimes overrides it
+        forced_model = os.getenv("EMBEDDING_MODEL", self.config.model or "text-embedding-3-small")
+
+        print(f"[DEBUG EMBED] Using model: {self.config.model}")
+        print(f"[DEBUG EMBED] Using embedding_dims: {self.config.embedding_dims}")
+        print(f"[DEBUG EMBED] Full config: {self.config.__dict__}")
+
+        # Force the model name one last time
+        forced_model = self.config.model or os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+        forced_dims = self.config.embedding_dims or int(os.getenv("VECTOR_DIMS", "1536"))
+
+        print(f"[DEBUG EMBED] Forced model: {forced_model}")
+        print(f"[DEBUG EMBED] Forced dims: {forced_dims}")
+
+        return (embeddings.create(
+            self.client.
+                input=[text],
+                model=forced_model,
+                dimensions=forced_dims
+            )
             .data[0]
             .embedding
-        )
+)

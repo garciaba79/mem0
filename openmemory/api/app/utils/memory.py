@@ -30,6 +30,7 @@ Example configuration that will be automatically adjusted:
 import hashlib
 import json
 import os
+from pprint import pprint
 import socket
 
 from app.database import SessionLocal
@@ -55,7 +56,7 @@ def _get_docker_host_url():
     # Check for custom environment variable first
     custom_host = os.environ.get('OLLAMA_HOST')
     if custom_host:
-        print(f"Using custom Ollama host from OLLAMA_HOST: {custom_host}")
+        print(f"[MEMORY] Using custom Ollama host from OLLAMA_HOST: {custom_host}")
         return custom_host.replace('http://', '').replace('https://', '').split(':')[0]
     
     # Check if we're running inside Docker
@@ -63,7 +64,7 @@ def _get_docker_host_url():
         # Not in Docker, return localhost as-is
         return "localhost"
     
-    print("Detected Docker environment, adjusting host URL for Ollama...")
+    print("[MEMORY] Detected Docker environment, adjusting host URL for Ollama...")
     
     # Try different host resolution strategies
     host_candidates = []
@@ -72,7 +73,7 @@ def _get_docker_host_url():
     try:
         socket.gethostbyname('host.docker.internal')
         host_candidates.append('host.docker.internal')
-        print("Found host.docker.internal")
+        print("[MEMORY] Found host.docker.internal")
     except socket.gaierror:
         pass
     
@@ -85,7 +86,7 @@ def _get_docker_host_url():
                     gateway_hex = fields[2]
                     gateway_ip = socket.inet_ntoa(bytes.fromhex(gateway_hex)[::-1])
                     host_candidates.append(gateway_ip)
-                    print(f"Found Docker gateway: {gateway_ip}")
+                    print(f"[MEMORY] Found Docker gateway: {gateway_ip}")
                     break
     except (FileNotFoundError, IndexError, ValueError):
         pass
@@ -93,7 +94,7 @@ def _get_docker_host_url():
     # 3. Fallback to common Docker bridge IP
     if not host_candidates:
         host_candidates.append('172.17.0.1')
-        print("Using fallback Docker bridge IP: 172.17.0.1")
+        print("[MEMORY] Using fallback Docker bridge IP: 172.17.0.1")
     
     # Return the first available candidate
     return host_candidates[0]
@@ -121,7 +122,7 @@ def _fix_ollama_urls(config_section):
             if docker_host != "localhost":
                 new_url = url.replace("localhost", docker_host).replace("127.0.0.1", docker_host)
                 ollama_config["ollama_base_url"] = new_url
-                print(f"Adjusted Ollama URL from {url} to {new_url}")
+                print(f"[MEMORY] Adjusted Ollama URL from {url} to {new_url}")
     
     return config_section
 
@@ -143,26 +144,26 @@ def get_default_memory_config():
     if os.getenv("MEM0_LLM_CONFIG"):
         try:
             config["llm"] = json.loads(os.getenv("MEM0_LLM_CONFIG"))
-            print("Loaded LLM config from MEM0_LLM_CONFIG")
+            print("[MEMORY] Loaded LLM config from MEM0_LLM_CONFIG")
             json_overrides_applied = True
         except json.JSONDecodeError as e:
-            print(f"Warning: Invalid MEM0_LLM_CONFIG JSON: {e}")
+            print(f"[MEMORY] Warning: Invalid MEM0_LLM_CONFIG JSON: {e}")
 
     if os.getenv("MEM0_EMBEDDER_CONFIG"):
         try:
             config["embedder"] = json.loads(os.getenv("MEM0_EMBEDDER_CONFIG"))
-            print("Loaded embedder config from MEM0_EMBEDDER_CONFIG")
+            print("[MEMORY] Loaded embedder config from MEM0_EMBEDDER_CONFIG")
             json_overrides_applied = True
         except json.JSONDecodeError as e:
-            print(f"Warning: Invalid MEM0_EMBEDDER_CONFIG JSON: {e}")
+            print(f"[MEMORY] Warning: Invalid MEM0_EMBEDDER_CONFIG JSON: {e}")
 
     if os.getenv("MEM0_VECTOR_STORE_CONFIG"):
         try:
             config["vector_store"] = json.loads(os.getenv("MEM0_VECTOR_STORE_CONFIG"))
-            print("Loaded vector store config from MEM0_VECTOR_STORE_CONFIG")
+            print("[MEMORY] Loaded vector store config from MEM0_VECTOR_STORE_CONFIG")
             json_overrides_applied = True
         except json.JSONDecodeError as e:
-            print(f"Warning: Invalid MEM0_VECTOR_STORE_CONFIG JSON: {e}")
+            print(f"[MEMORY] Warning: Invalid MEM0_VECTOR_STORE_CONFIG JSON: {e}")
 
     # If any JSON override was applied, return early — they are complete
     if json_overrides_applied and "llm" in config and "embedder" in config and "vector_store" in config:
@@ -247,7 +248,7 @@ def get_default_memory_config():
         vector_store_provider = "qdrant"
         vector_store_config.update({"port": 6333})
 
-    print(f"Auto-detected vector store: {vector_store_provider} with config: {vector_store_config}")
+    print(f"[MEMORY] Auto-detected vector store: {vector_store_provider} with config: {vector_store_config}")
     config["vector_store"] = {"provider": vector_store_provider, "config": vector_store_config}
 
     # 3. LLM and Embedder: use individual env vars if no JSON override
@@ -270,7 +271,7 @@ def get_default_memory_config():
                 "model": os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
                 "api_key": os.getenv("OPENAI_API_KEY") or "env:OPENAI_API_KEY",
                 "ollama_base_url": os.getenv("OLLAMA_BASE_URL"),
-                "dimension": int(os.getenv("VECTOR_DIMS", "1536"))
+                "embedding_dims": int(os.getenv("VECTOR_DIMS", "1536"))
             }
         }
 
@@ -290,9 +291,9 @@ def _parse_environment_variables(config_dict):
                 env_value = os.environ.get(env_var)
                 if env_value:
                     parsed_config[key] = env_value
-                    print(f"Loaded {env_var} from environment for {key}")
+                    print(f"[MEMORY] Loaded {env_var} from environment for {key}")
                 else:
-                    print(f"Warning: Environment variable {env_var} not found, keeping original value")
+                    print(f"[MEMORY] Warning: Environment variable {env_var} not found, keeping original value")
                     parsed_config[key] = value
             elif isinstance(value, dict):
                 parsed_config[key] = _parse_environment_variables(value)
@@ -303,105 +304,94 @@ def _parse_environment_variables(config_dict):
 
 
 def get_memory_client(custom_instructions: str = None):
-    """
-    Get or initialize the Mem0 client.
-
-    Args:
-        custom_instructions: Optional instructions for the memory project.
-
-    Returns:
-        Initialized Mem0 client instance or None if initialization fails.
-
-    Raises:
-        Exception: If required API keys are not set or critical configuration is missing.
-    """
     global _memory_client, _config_hash
 
     try:
-        # Start with default configuration
-        config = get_default_memory_config()
-        
-        # Variable to track custom instructions
+        # Build fresh config from env/JSON first
+        fresh_env_config = get_default_memory_config()
+
+        config = fresh_env_config  # Env wins by default
+        print("[MEMORY] [MEMROY] Here is the config value:")
+        pprint(f"[MEMORY] value: {config}")
+
         db_custom_instructions = None
-        
-        # Load configuration from database
+
         try:
             db = SessionLocal()
             db_config = db.query(ConfigModel).filter(ConfigModel.key == "main").first()
-            
+            print("[MEMORY] Here is the db_config value:")
+            pprint(f"[MEMORY] value: {db_config}")
+
             if db_config:
                 json_config = db_config.value
-                
-                # Extract custom instructions from openmemory settings
+                print("[MEMORY] Loaded DB config — merging ONLY custom non-env fields")
+                print("[MEMORY] Here is the json_config value:")
+                pprint(f"[MEMORY] value: {json_config}")
+
+                # Merge ONLY custom (non-env) fields from DB
                 if "openmemory" in json_config and "custom_instructions" in json_config["openmemory"]:
                     db_custom_instructions = json_config["openmemory"]["custom_instructions"]
-                
-                # Override defaults with configurations from the database
-                if "mem0" in json_config:
-                    mem0_config = json_config["mem0"]
-                    
-                    # Update LLM configuration if available
-                    if "llm" in mem0_config and mem0_config["llm"] is not None:
-                        config["llm"] = mem0_config["llm"]
-                        
-                        # Fix Ollama URLs for Docker if needed
-                        if config["llm"].get("provider") == "ollama":
-                            config["llm"] = _fix_ollama_urls(config["llm"])
-                    
-                    # Update Embedder configuration if available
-                    if "embedder" in mem0_config and mem0_config["embedder"] is not None:
-                        config["embedder"] = mem0_config["embedder"]
-                        
-                        # Fix Ollama URLs for Docker if needed
-                        if config["embedder"].get("provider") == "ollama":
-                            config["embedder"] = _fix_ollama_urls(config["embedder"])
 
-                    if "vector_store" in mem0_config and mem0_config["vector_store"] is not None:
-                        config["vector_store"] = mem0_config["vector_store"]
+                # Do NOT merge model/base_url/dims from DB — env wins
+                # Only merge if DB has something env doesn't (rare)
+
+            # Save the env-priority config to DB (create or update)
+            config_to_save = {
+                "openmemory": {"custom_instructions": db_custom_instructions or None},
+                "mem0": {
+                    "llm": config.get("llm"),
+                    "embedder": config.get("embedder"),
+                    "vector_store": config.get("vector_store")
+                }
+            }
+
+            print("[MEMORY] Here is the config_to_save value:")
+            pprint(f"[MEMORY] value: {config_to_save}")
+
+            if db_config:
+                db_config.value = config_to_save
+                print("[MEMORY] Updated DB with env-priority config (your models)")
             else:
-                print("No configuration found in database, using defaults")
-                    
+                db_config = ConfigModel(key="main", value=config_to_save)
+                db.add(db_config)
+                print("[MEMORY] Created DB with env-priority config (your models)")
+
+            print("[MEMORY] Writing this config to DB:")
+            pprint(f"[MEMORY] value: {db_config}")
+
+            db.commit()
+            db.refresh(db_config)
             db.close()
-                            
+
         except Exception as e:
-            print(f"Warning: Error loading configuration from database: {e}")
-            print("Using default configuration")
-            # Continue with default configuration if database config can't be loaded
+            print(f"[MEMORY] Warning: DB sync failed: {e}")
+            # Proceed with env config
 
-        # Use custom_instructions parameter first, then fall back to database value
-        instructions_to_use = custom_instructions or db_custom_instructions
-        if instructions_to_use:
-            config["custom_fact_extraction_prompt"] = instructions_to_use
+        # Custom instructions
+        if custom_instructions or db_custom_instructions:
+            config["custom_fact_extraction_prompt"] = custom_instructions or db_custom_instructions
 
-        # ALWAYS parse environment variables in the final config
-        # This ensures that even default config values like "env:OPENAI_API_KEY" get parsed
-        print("Parsing environment variables in final config...")
+        # Parse env: strings
+        print("[MEMORY] Parsing environment variables in final config...")
         config = _parse_environment_variables(config)
+        print("[MEMORY] Here is the parsed config value:")
+        pprint(f"[MEMORY] value: {config}")
 
-        # Check if config has changed by comparing hashes
-        current_config_hash = _get_config_hash(config)
-        
-        # Only reinitialize if config changed or client doesn't exist
-        if _memory_client is None or _config_hash != current_config_hash:
-            print(f"Initializing memory client with config hash: {current_config_hash}")
+        current_hash = _get_config_hash(config)
+        if _memory_client is None or _config_hash != current_hash:
+            print(f"[MEMORY] Initializing memory client with hash: {current_hash}")
             try:
                 _memory_client = Memory.from_config(config_dict=config)
-                _config_hash = current_config_hash
-                print("Memory client initialized successfully")
-            except Exception as init_error:
-                print(f"Warning: Failed to initialize memory client: {init_error}")
-                print("Server will continue running with limited memory functionality")
+                _config_hash = current_hash
+                print("[MEMORY] Memory client initialized successfully")
+            except Exception as e:
+                print(f"[MEMORY] Failed to initialize memory client: {e}")
                 _memory_client = None
                 _config_hash = None
                 return None
-        
+
         return _memory_client
-        
+
     except Exception as e:
-        print(f"Warning: Exception occurred while initializing memory client: {e}")
-        print("Server will continue running with limited memory functionality")
+        print(f"[MEMORY] Exception in get_memory_client: {e}")
         return None
-
-
-def get_default_user_id():
-    return "default_user"

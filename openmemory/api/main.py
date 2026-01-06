@@ -9,6 +9,7 @@ from app.routers import apps_router, backup_router, config_router, memories_rout
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi_pagination import add_pagination
+from app.utils.memory import get_memory_client
 
 app = FastAPI(title="OpenMemory API")
 
@@ -87,3 +88,13 @@ app.include_router(backup_router)
 
 # Add pagination support
 add_pagination(app)
+
+@app.on_event("startup")
+async def initialize_memory_on_startup():
+    print("[STARTUP] Initializing memory client and seeding database with environment config...")
+    client = get_memory_client()
+    if client:
+        print("[STARTUP] Memory client initialized successfully on startup")
+        print("[STARTUP] Database seeded with your custom models (deepseek, gte, base_url, embedding_dims)")
+    else:
+        print("[STARTUP] WARNING: Memory client failed to initialize on startup")

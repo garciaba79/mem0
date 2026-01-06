@@ -6,6 +6,7 @@ from app.utils.memory import reset_memory_client
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
+from os import getenv
 
 router = APIRouter(prefix="/api/v1/config", tags=["config"])
 
@@ -23,7 +24,8 @@ class LLMProvider(BaseModel):
 class EmbedderConfig(BaseModel):
     model: str = Field(..., description="Embedder model name")
     api_key: Optional[str] = Field(None, description="API key or 'env:API_KEY' to use environment variable")
-    ollama_base_url: Optional[str] = Field(None, description="Base URL for Ollama server (e.g., http://host.docker.internal:11434)")
+    ollama_base_url: Optional[str] = Field(None, description="Base URL for Ollama server")
+    embedding_dims: Optional[int] = Field(1536, description="Embedding dimension (vector size)")
 
 class EmbedderProvider(BaseModel):
     provider: str = Field(..., description="Embedder provider name")
@@ -66,7 +68,8 @@ def get_default_configuration():
                 "provider": "openai",
                 "config": {
                     "model": "text-embedding-3-small",
-                    "api_key": "env:OPENAI_API_KEY"
+                    "api_key": "env:OPENAI_API_KEY",
+                    "embedding_dims": 1536
                 }
             },
             "vector_store": None
