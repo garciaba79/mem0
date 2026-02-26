@@ -23,8 +23,14 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/pnpm-lock.yaml ./pnpm-lock.yaml
 COPY . .
 
+# Use the original example as fallback, but override with custom .env if present
+COPY .env* ./
+RUN cp .env.example .env || true  # Keep example if no custom .env
+
 RUN cp next.config.dev.mjs next.config.mjs
-RUN cp .env.example .env
+
+ENV NEXT_TELEMETRY_DISABLED=1
+
 RUN pnpm build
 
 FROM base AS runner

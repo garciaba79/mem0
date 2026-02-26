@@ -1,36 +1,87 @@
+name: openmemory
+
 services:
-  mem0_store:
-    image: qdrant/qdrant
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: openmemory-qdrant
     ports:
       - "6333:6333"
     volumes:
-      - mem0_storage:/mem0/storage
-  openmemory-mcp:
-    image: mem0/openmemory-mcp
-    build: api/
+      - openmemory:/qdrant/storage
+    restart: always
+    pull_policy: if_not_present
+
+  postgres:
+    image: postgres:16
+    container_name: openmemory-postgres
     environment:
-      - USER
-      - API_KEY
-    env_file:
-      - api/.env
-    depends_on:
-      - mem0_store
-    ports:
-      - "8765:8765"
+      POSTGRES_DB: openmemory
+      POSTGRES_USER: openmemory
+      POSTGRES_PASSWORD: openmemory
     volumes:
-      - ./api:/usr/src/openmemory
-    command: >
-      sh -c "uvicorn main:app --host 0.0.0.0 --port 8765 --reload --workers 4"
+      - openmemory_postgres:/var/lib/postgresql/data
+    restart: always
+    pull_policy: if_not_present
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U openmemory" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  openmemory-mcp:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: openmemory-mcp
+    depends_on:
+      - qdrant
+    ports:
+      - "10003:8765"
+    environment:
+      - OPENAI_API_KEY=lmstudio
+      - OPENAI_BASE_URL=http://host.docker.internal:1234/v1
+      - FORCE_CONFIG_SAVE=true
+      - HISTORY_DB_PATH=/data/history.db
+      - DATABASE_URL=postgresql://openmemory:openmemory@postgres:5432/openmemory
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - QDRANT_COLLECTION=openmemory
+      - USER=garciaba79
+      - MEM0_ASYNC_MODE=true
+      - 'MEM0_LLM_CONFIG={"provider": "openai", "config": {"model": "liquidai_lfm2.5-1.2b-instruct", "temperature": 0.1, "max_tokens": 1500}}'
+      - 'MEM0_EMBEDDER_CONFIG={"provider": "openai", "config": {"model": "text-embedding-bge-m3", "embedding_dims": 1024}}'
+      - 'MEM0_VECTOR_STORE_CONFIG={"provider": "qdrant", "config": {"host": "qdrant", "port": 6333, "collection_name": "openmemory", "embedding_model_dims": 1024}}'
+    volumes:
+      - openmemory:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: always
+    pull_policy: never
+
   openmemory-ui:
     build:
-      context: ui/
+      context: ./ui
       dockerfile: Dockerfile
-    image: mem0/openmemory-ui:latest
+    container_name: openmemory-ui
     ports:
-      - "3000:3000"
+      - "10004:3000"
+    env_file:
+      - ./ui/.env
     environment:
-      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
-      - NEXT_PUBLIC_USER_ID=${USER}
+      - NEXT_PUBLIC_API_URL=http://localhost:10003
+      - NEXT_PUBLIC_USER_ID=garciaba79
+    depends_on:
+      - openmemory-mcp
+    restart: always
+    pull_policy: never
 
 volumes:
-  mem0_storage:
+  openmemory:
+    name: openmemory
+  openmemory_postgres:
+    name: openmemory_postgres
+
+networks:
+  openmemory_network:
+    name: openmemory_default
+    external: true

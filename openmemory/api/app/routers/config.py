@@ -56,7 +56,7 @@ def get_default_configuration():
             "llm": {
                 "provider": "openai",
                 "config": {
-                    "model": "gpt-4o-mini",
+                    "model": "liquidai_lfm2.5-1.2b-instruct",
                     "temperature": 0.1,
                     "max_tokens": 2000,
                     "api_key": "env:OPENAI_API_KEY"
@@ -65,7 +65,7 @@ def get_default_configuration():
             "embedder": {
                 "provider": "openai",
                 "config": {
-                    "model": "text-embedding-3-small",
+                    "model": "text-embedding-bge-m3",
                     "api_key": "env:OPENAI_API_KEY"
                 }
             },
@@ -152,9 +152,16 @@ async def update_configuration(config: ConfigSchema, db: Session = Depends(get_d
             updated_config["openmemory"] = {}
         updated_config["openmemory"].update(config.openmemory.dict(exclude_none=True))
     
-    # Update mem0 settings
-    updated_config["mem0"] = config.mem0.dict(exclude_none=True)
+    # Update mem0 settings (full replacement)
+    updated_config["mem0"] = config.mem0.dict(exclude_none=True, exclude_unset=False)
     
+    # Save to DB and reset client
+    save_config_to_db(db, updated_config)
+    reset_memory_client()
+    
+    # CRITICAL: Return the updated config so FastAPI can serialize it
+    return updated_config
+
 
 @router.patch("/", response_model=ConfigSchema)
 async def patch_configuration(config_update: ConfigSchema, db: Session = Depends(get_db)):
@@ -174,6 +181,7 @@ async def patch_configuration(config_update: ConfigSchema, db: Session = Depends
 
     save_config_to_db(db, updated_config)
     reset_memory_client()
+    
     return updated_config
 
 
@@ -193,6 +201,22 @@ async def reset_configuration(db: Session = Depends(get_db)):
             status_code=500, 
             detail=f"Failed to reset configuration: {str(e)}"
         )
+
+@router.post("/reset-models")
+async def reset_models(db: Session = Depends(get_db)):
+    """Reset only LLM and embedder model fields to environment defaults."""
+    current_config = get_config_from_db(db)
+    
+    if "mem0" in current_config:
+        if "llm" in current_config["mem0"] and "config" in current_config["mem0"]["llm"]:
+            current_config["mem0"]["llm"]["config"]["model"] = None
+        if "embedder" in current_config["mem0"] and "config" in current_config["mem0"]["embedder"]:
+            current_config["mem0"]["embedder"]["config"]["model"] = None
+    
+    save_config_to_db(db, current_config)
+    reset_memory_client()
+    
+    return {"message": "LLM and embedder models reset to environment defaults"}
 
 @router.get("/mem0/llm", response_model=LLMProvider)
 async def get_llm_configuration(db: Session = Depends(get_db)):
